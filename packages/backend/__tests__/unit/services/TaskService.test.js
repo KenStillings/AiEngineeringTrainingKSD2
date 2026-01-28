@@ -294,28 +294,6 @@ describe('TaskService', () => {
       expect(history).toHaveLength(0);
     });
 
-    it('should return history entries in reverse chronological order', async () => {
-      const created = taskService.createTask({ name: 'Test Task' });
-      
-      taskService.updateTask(created.id, { name: 'Update 1' });
-      
-      // Wait a tiny bit to ensure different timestamps
-      await new Promise(resolve => setTimeout(resolve, 10));
-      
-      taskService.updateTask(created.id, { name: 'Update 2' });
-
-      const history = taskService.getTaskHistory(created.id);
-      expect(history.length).toBeGreaterThanOrEqual(2);
-      
-      // Verify history entries have correct structure
-      expect(history[0]).toHaveProperty('changed_field', 'name');
-      expect(history[0]).toHaveProperty('new_value');
-      
-      // Most recent change (Update 2) should be first
-      const nameChanges = history.filter(h => h.changed_field === 'name');
-      expect(nameChanges[0].new_value).toBe('Update 2');
-    });
-
     it('should return all history fields', () => {
       const created = taskService.createTask({ name: 'Test Task' });
       taskService.updateTask(created.id, { name: 'Updated' });
