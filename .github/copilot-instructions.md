@@ -12,3 +12,4 @@ The project documentation will be built during the bootcamp sessions.
 - [Functional Requirements](../docs/functional-requirements.md) - Core functional requirements for the task management application
 - [UI Guidelines](../docs/ui-guidelines.md) - User interface design guidelines and style specifications
 - [Testing Guidelines](../docs/testing-guidelines.md) - Testing requirements and best practices
+- [Coding Guidelines](../docs/coding-guidelines.md) - Code style standards and best practices
