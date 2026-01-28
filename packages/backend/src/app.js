@@ -1,7 +1,10 @@
-const express = require('express');
 const cors = require('cors');
+const express = require('express');
 const morgan = require('morgan');
-const Database = require('better-sqlite3');
+
+const { createDatabase, seedDatabase } = require('./database/schema');
+const TaskService = require('./services/TaskService');
+const { validateTaskId } = require('./utils/validation');
 
 // Initialize express app
 const app = express();
@@ -11,83 +14,165 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-// Initialize in-memory SQLite database
-const db = new Database(':memory:');
+// Initialize database
+const db = createDatabase();
+seedDatabase(db);
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+// Initialize TaskService
+const taskService = new TaskService(db);
 
-// Insert some initial data
-const initialItems = ['Item 1', 'Item 2', 'Item 3'];
-const insertStmt = db.prepare('INSERT INTO items (name) VALUES (?)');
+console.log('In-memory database initialized with sample tasks');
 
-initialItems.forEach(item => {
-  insertStmt.run(item);
-});
+// API Routes - Tasks
 
-console.log('In-memory database initialized with sample data');
-
-// API Routes
-app.get('/api/items', (req, res) => {
+/**
+ * GET /api/tasks
+ * Retrieve all tasks, sorted by due date and creation date
+ */
+app.get('/api/tasks', (req, res) => {
   try {
-    const items = db.prepare('SELECT * FROM items ORDER BY created_at DESC').all();
-    res.json(items);
+    const tasks = taskService.getAllTasks();
+    res.json(tasks);
   } catch (error) {
-    console.error('Error fetching items:', error);
-    res.status(500).json({ error: 'Failed to fetch items' });
+    console.error('Error fetching tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks' });
   }
 });
 
-app.post('/api/items', (req, res) => {
+/**
+ * GET /api/tasks/:id
+ * Retrieve a single task by ID
+ */
+app.get('/api/tasks/:id', (req, res) => {
   try {
-    const { name } = req.body;
-
-    if (!name || typeof name !== 'string' || name.trim() === '') {
-      return res.status(400).json({ error: 'Item name is required' });
+    const validation = validateTaskId(req.params.id);
+    if (!validation.isValid) {
+      return res.status(400).json({ error: validation.error });
     }
 
-    const result = insertStmt.run(name);
-    const id = result.lastInsertRowid;
+    const task = taskService.getTaskById(validation.id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
 
-    const newItem = db.prepare('SELECT * FROM items WHERE id = ?').get(id);
-    res.status(201).json(newItem);
+    res.json(task);
   } catch (error) {
-    console.error('Error creating item:', error);
-    res.status(500).json({ error: 'Failed to create item' });
+    console.error('Error fetching task:', error);
+    res.status(500).json({ error: 'Failed to fetch task' });
   }
 });
 
-app.delete('/api/items/:id', (req, res) => {
+/**
+ * POST /api/tasks
+ * Create a new task
+ */
+app.post('/api/tasks', (req, res) => {
   try {
-    const { id } = req.params;
-
-    if (!id || isNaN(parseInt(id))) {
-      return res.status(400).json({ error: 'Valid item ID is required' });
-    }
-
-    const existingItem = db.prepare('SELECT * FROM items WHERE id = ?').get(id);
-    if (!existingItem) {
-      return res.status(404).json({ error: 'Item not found' });
-    }
-
-    const deleteStmt = db.prepare('DELETE FROM items WHERE id = ?');
-    const result = deleteStmt.run(id);
-
-    if (result.changes > 0) {
-      res.json({ message: 'Item deleted successfully', id: parseInt(id) });
-    } else {
-      res.status(404).json({ error: 'Item not found' });
-    }
+    const task = taskService.createTask(req.body);
+    res.status(201).json(task);
   } catch (error) {
-    console.error('Error deleting item:', error);
-    res.status(500).json({ error: 'Failed to delete item' });
+    console.error('Error creating task:', error);
+    
+    if (error.message.includes('required') || error.message.includes('must be')) {
+      return res.status(400).json({ error: error.message });
+    }
+    
+    res.status(500).json({ error: 'Failed to create task' });
   }
 });
 
-module.exports = { app, db, insertStmt };
+/**
+ * PUT /api/tasks/:id
+ * Update an existing task
+ */
+app.put('/api/tasks/:id', (req, res) => {
+  try {
+    const validation = validateTaskId(req.params.id);
+    if (!validation.isValid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const task = taskService.updateTask(validation.id, req.body);
+    res.json(task);
+  } catch (error) {
+    console.error('Error updating task:', error);
+    
+    if (error.message === 'Task not found') {
+      return res.status(404).json({ error: error.message });
+    }
+    
+    if (error.message.includes('must be')) {
+      return res.status(400).json({ error: error.message });
+    }
+    
+    res.status(500).json({ error: 'Failed to update task' });
+  }
+});
+
+/**
+ * PATCH /api/tasks/:id/complete
+ * Toggle task completion status
+ */
+app.patch('/api/tasks/:id/complete', (req, res) => {
+  try {
+    const validation = validateTaskId(req.params.id);
+    if (!validation.isValid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const task = taskService.toggleCompletion(validation.id);
+    res.json(task);
+  } catch (error) {
+    console.error('Error toggling task completion:', error);
+    
+    if (error.message === 'Task not found') {
+      return res.status(404).json({ error: error.message });
+    }
+    
+    res.status(500).json({ error: 'Failed to toggle task completion' });
+  }
+});
+
+/**
+ * DELETE /api/tasks/:id
+ * Delete a task
+ */
+app.delete('/api/tasks/:id', (req, res) => {
+  try {
+    const validation = validateTaskId(req.params.id);
+    if (!validation.isValid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const deleted = taskService.deleteTask(validation.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    res.json({ message: 'Task deleted successfully', id: validation.id });
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    res.status(500).json({ error: 'Failed to delete task' });
+  }
+});
+
+/**
+ * GET /api/tasks/:id/history
+ * Retrieve change history for a task
+ */
+app.get('/api/tasks/:id/history', (req, res) => {
+  try {
+    const validation = validateTaskId(req.params.id);
+    if (!validation.isValid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const history = taskService.getTaskHistory(validation.id);
+    res.json(history);
+  } catch (error) {
+    console.error('Error fetching task history:', error);
+    res.status(500).json({ error: 'Failed to fetch task history' });
+  }
+});
+
+module.exports = { app, db, taskService };
