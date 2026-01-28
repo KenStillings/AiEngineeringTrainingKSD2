@@ -294,10 +294,14 @@ describe('TaskService', () => {
       expect(history).toHaveLength(0);
     });
 
-    it('should return history entries in reverse chronological order', () => {
+    it('should return history entries in reverse chronological order', async () => {
       const created = taskService.createTask({ name: 'Test Task' });
       
       taskService.updateTask(created.id, { name: 'Update 1' });
+      
+      // Wait a tiny bit to ensure different timestamps
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
       taskService.updateTask(created.id, { name: 'Update 2' });
 
       const history = taskService.getTaskHistory(created.id);
