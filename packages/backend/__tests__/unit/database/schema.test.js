@@ -11,7 +11,7 @@ describe('Database Schema', () => {
   afterEach(() => {
     db.close();
   });
-
+  //adding a comment for commit
   describe('initializeSchema', () => {
     it('should create tasks table', () => {
       initializeSchema(db);
